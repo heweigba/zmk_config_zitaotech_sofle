@@ -4,3 +4,6 @@ include:
     shield: lpm_view;left_bbtrackball
   - board: zitaotech_sofle_right
     shield: lpm_view;right_trackpoint
+  - board: zitaotech_sofle_right
+    shield: settings_reset
+
