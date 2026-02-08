@@ -14,7 +14,8 @@
 #include <dt-bindings/zmk/rgb.h>
 
 #define FUNC 1
-#define RES 2
+#define MOUSE 2
+#define RES 3
 #define BOT bootloader
 
 / {
@@ -81,10 +82,22 @@
             sensor-bindings = <&BLE_encoder &inc_dec_kp UP DOWN>;
         };
 
+        mouse_layer {
+            display-name = "MOUSE";
+            bindings = <
+&trans    &trans    &trans     &trans   &trans   &trans  &trans                       &trans           &trans  &trans &trans  &trans &trans &trans
+&trans    &trans    &trans     &trans   &trans   &trans                                                &trans  &trans &trans  &trans &trans &trans
+&trans    &trans    &trans     &trans   &trans   &trans  &mkp LCLK                    &mkp LCLK        &trans  &trans &trans  &trans &trans &trans
+&trans    &trans    &trans     &trans   &trans   &trans  &mkp MCLK   &none              &mkp LCLK &mkp RCLK &trans  &trans &trans  &trans &trans &trans
+                    &trans     &trans   &trans   &trans  &trans                                        &trans  &trans &trans  &trans &trans
+            >;
+            sensor-bindings = <&inc_dec_kp PG_UP PG_DN &inc_dec_kp HOME END>;
+        };
+
         RES_layer {
             display-name = "RESERVE";
             bindings = <
-&none     &none     &none      &none    &none    &none   &none                        &none            &none   &none  &none   &none  &none  &none            
+&none     &none     &none      &none    &none    &none   &none                        &none            &none   &none  &none   &none  &none  &none
 &none     &none     &none      &none    &none    &none                                                 &none   &none  &none   &none  &none  &none
 &none     &none     &none      &none    &none    &none   &none                        &none            &none   &none  &none   &none  &none  &none
 &none     &none     &none      &none    &none    &none   &none   &none                &none  &none     &none   &none  &none   &none  &none  &none

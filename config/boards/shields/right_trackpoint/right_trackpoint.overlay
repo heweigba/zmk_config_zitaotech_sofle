@@ -5,6 +5,8 @@
 *
 */
 
+#include <zephyr/dt-bindings/input/input-event-codes.h>
+
 / {
     chosen {
         zmk,custom_led = &custom_led;
@@ -14,6 +16,13 @@
         pwm_led_0 {
             pwms = <&pwm1 0 PWM_USEC(20) PWM_POLARITY_NORMAL>;
         };
+    };
+
+    /* Auto-mouse layer input processor */
+    zip_temp_layer: zip_temp_layer {
+        compatible = "zmk,input-processor-temp-layer";
+        #input-processor-cells = <2>;
+        require-prior-idle-ms = <500>;
     };
 
 };
@@ -53,11 +62,12 @@
 
     };
 
-    /* Listeners */
+    /* Listeners - Auto switch to mouse layer on trackpoint movement */
     trackpoint_listener: trackpoint_listener {
         compatible = "zmk,input-listener";
-        status = "disabled";
+        status = "okay";
         device = <&trackpoint_split>;
+        input-processors = <&zip_temp_layer 2 1000>;  /* Layer 2 (MOUSE), 1000ms timeout */
     };
 
 };
