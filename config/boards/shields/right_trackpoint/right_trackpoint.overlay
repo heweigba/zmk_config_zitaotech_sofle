@@ -18,13 +18,6 @@
         };
     };
 
-    /* Auto-mouse layer input processor */
-    zip_temp_layer: zip_temp_layer {
-        compatible = "zmk,input-processor-temp-layer";
-        #input-processor-cells = <2>;
-        require-prior-idle-ms = <500>;
-    };
-
 };
 
 &pwm1 {
@@ -37,7 +30,7 @@
 &i2c0 {
     status = "okay";
     compatible = "nordic,nrf-twim";
-    clock-frequency = <I2C_BITRATE_FAST>; 
+    clock-frequency = <I2C_BITRATE_FAST>;
     pinctrl-0 = <&i2c0_default>;
     pinctrl-1 = <&i2c0_sleep>;
     pinctrl-names = "default", "sleep";
@@ -62,12 +55,11 @@
 
     };
 
-    /* Listeners - Auto switch to mouse layer on trackpoint movement */
+    /* Listeners */
     trackpoint_listener: trackpoint_listener {
         compatible = "zmk,input-listener";
         status = "okay";
         device = <&trackpoint_split>;
-        input-processors = <&zip_temp_layer 2 1000>;  /* Layer 2 (MOUSE), 1000ms timeout */
     };
 
 };
@@ -105,4 +97,3 @@
         };
     };
 };
-
