@@ -100,11 +100,11 @@
         mouse_layer {
             display-name = "MOUSE";
             bindings = <
-&trans  &trans  &trans  &trans  &trans     &trans     &trans     &trans     &trans  &trans  &trans  &trans  &trans  &trans
-&trans  &trans  &trans  &trans  &trans     &trans     &trans     &trans     &trans  &trans  &trans  &trans
-&trans  &trans  &trans  &trans  &trans     &trans     &mkp LCLK  &mkp LCLK  &trans  &trans  &trans  &trans  &trans  &trans
-&trans  &trans  &trans  &trans  &trans     &trans     &mkp MCLK  &none      &trans  &trans  &trans  &trans  &trans  &trans  &trans  &trans
-&trans  &trans  &trans  &trans  &mkp LCLK  &mkp LCLK  &mkp RCLK  &trans     &trans  &trans
+&trans  &trans  &trans  &trans  &trans  &trans     &trans     &trans     &trans  &trans  &trans  &trans  &trans  &trans
+&trans  &trans  &trans  &trans  &trans  &trans     &trans     &trans     &trans  &trans  &trans  &trans
+&trans  &trans  &trans  &trans  &trans  &trans     &mkp LCLK  &mkp LCLK  &trans  &trans  &trans  &trans  &trans  &trans
+&trans  &trans  &trans  &trans  &trans  &trans     &mkp MCLK  &none      &trans  &trans  &trans  &trans  &trans  &trans  &trans  &trans
+&trans  &trans  &trans  &trans  &trans  &mkp LCLK  &mkp RCLK  &trans     &trans  &trans
             >;
 
             sensor-bindings = <&inc_dec_kp PG_UP PG_DN &inc_dec_kp HOME END>;
