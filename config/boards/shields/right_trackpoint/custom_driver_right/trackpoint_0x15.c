@@ -14,6 +14,8 @@
 
 #include <zmk/event_manager.h>
 #include <zmk/events/position_state_changed.h>
+#include <zmk/events/layer_state_changed.h>
+#include <zmk/layers.h>
 
 #include <zephyr/input/input.h>
 #include <zephyr/logging/log.h>
@@ -35,26 +37,29 @@ static const struct device *motion_gpio_dev;
 #define TRACKPOINT_PACKET_LEN 7
 #define TRACKPOINT_MAGIC_BYTE0 0x50
 
+/* ========= 层定义 ========= */
+#define MOUSE_LAYER 2
+
 /* ========= 全局状态 ========= */
 static const struct device *trackpoint_dev_ref = NULL;
-static bool space_pressed = false;
+static bool mouse_layer_active = false;
 uint32_t last_packet_time = 0;
 
-/* ========= Space 按键监听 ========= */
-static int space_listener_cb(const zmk_event_t *eh) {
-    const struct zmk_position_state_changed *ev = as_zmk_position_state_changed(eh);
+/* ========= 层变化监听 ========= */
+static int layer_listener_cb(const zmk_event_t *eh) {
+    const struct zmk_layer_state_changed *ev = as_zmk_layer_state_changed(eh);
     if (!ev) {
         return 0;
     }
 
-    if (ev->position == 61) { // Space position code
-        space_pressed = ev->state;
-        LOG_INF("space position=61 %s", space_pressed ? "PRESSED" : "RELEASED");
+    if (ev->layer == MOUSE_LAYER) {
+        mouse_layer_active = ev->state;
+        LOG_INF("MOUSE layer %s", mouse_layer_active ? "ACTIVE" : "INACTIVE");
     }
     return 0;
 }
-ZMK_LISTENER(trackpoint_space_listener, space_listener_cb);
-ZMK_SUBSCRIPTION(trackpoint_space_listener, zmk_position_state_changed);
+ZMK_LISTENER(trackpoint_layer_listener, layer_listener_cb);
+ZMK_SUBSCRIPTION(trackpoint_layer_listener, zmk_layer_state_changed);
 
 /* ========= TrackPoint 配置结构 ========= */
 struct trackpoint_config {
@@ -100,8 +105,8 @@ static void trackpoint_poll_work(struct k_work *work) {
         /* INTPIN 拉低，读取数据包 */
         int8_t dx = 0, dy = 0;
         if (trackpoint_read_packet(dev, &dx, &dy) == 0) {
-            if (space_pressed) {
-                /* Space 按住时作为滚轮 */
+            if (!mouse_layer_active) {
+                /* 普通层：作为滚轮 */
                 int16_t scroll_x = 0, scroll_y = 0;
                 if (abs(dy) >= 128) {
                     scroll_x = -dx / 24;
@@ -126,7 +131,7 @@ static void trackpoint_poll_work(struct k_work *work) {
                 input_report_rel(dev, INPUT_REL_WHEEL, -scroll_y, true, K_FOREVER);
                 k_sleep(K_MSEC(40));
             } else {
-                /* 正常鼠标移动 */
+                /* MOUSE层：正常鼠标移动 */
                 uint8_t tp_led_brt = custom_led_get_last_valid_brightness();
                 float tp_factor = 0.4f + 0.01f * tp_led_brt;
                 dx = dx * 3 / 2 * tp_factor;
