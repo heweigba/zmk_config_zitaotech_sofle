@@ -37,28 +37,28 @@ static const struct device *motion_gpio_dev;
 
 /* ========= 全局状态 ========= */
 static const struct device *trackpoint_dev_ref = NULL;
-static bool space_pressed = false;
+static bool h_key_pressed = false;  // H键被按住时，小红点变为鼠标移动模式
 uint32_t last_packet_time = 0;
 
-/* ========= Space 按键监听 =========
- * 检测空格键(position 61)状态切换小红点模式：
- * - 空格未按：滚动模式
- * - 空格按住：鼠标移动模式
+/* ========= H 键监听 =========
+ * 检测 H 键(position 34)状态切换小红点模式：
+ * - H 未按：滚动模式
+ * - H 按住：鼠标移动模式
  */
-static int space_listener_cb(const zmk_event_t *eh) {
+static int h_key_listener_cb(const zmk_event_t *eh) {
     const struct zmk_position_state_changed *ev = as_zmk_position_state_changed(eh);
     if (!ev) {
         return 0;
     }
 
-    if (ev->position == 61) { // Space position code (与参考分支一致)
-        space_pressed = ev->state;
-        LOG_INF("space position=61 %s", space_pressed ? "PRESSED" : "RELEASED");
+    if (ev->position == 34) { // H key position
+        h_key_pressed = ev->state;
+        LOG_INF("H key position=34 %s", h_key_pressed ? "PRESSED" : "RELEASED");
     }
     return 0;
 }
-ZMK_LISTENER(trackpoint_space_listener, space_listener_cb);
-ZMK_SUBSCRIPTION(trackpoint_space_listener, zmk_position_state_changed);
+ZMK_LISTENER(trackpoint_h_key_listener, h_key_listener_cb);
+ZMK_SUBSCRIPTION(trackpoint_h_key_listener, zmk_position_state_changed);
 
 /* ========= TrackPoint 配置结构 ========= */
 struct trackpoint_config {
@@ -104,8 +104,8 @@ static void trackpoint_poll_work(struct k_work *work) {
         /* INTPIN 拉低，读取数据包 */
         int8_t dx = 0, dy = 0;
         if (trackpoint_read_packet(dev, &dx, &dy) == 0) {
-            if (!space_pressed) {
-                /* 空格未按：作为滚轮 */
+            if (!h_key_pressed) {
+                /* H键未按：作为滚轮 */
                 int16_t scroll_x = 0, scroll_y = 0;
                 if (abs(dy) >= 128) {
                     scroll_x = -dx / 24;
@@ -130,7 +130,7 @@ static void trackpoint_poll_work(struct k_work *work) {
                 input_report_rel(dev, INPUT_REL_WHEEL, -scroll_y, true, K_FOREVER);
                 k_sleep(K_MSEC(40));
             } else {
-                /* 空格按住时：正常鼠标移动 */
+                /* H键按住时：正常鼠标移动 */
                 uint8_t tp_led_brt = custom_led_get_last_valid_brightness();
                 float tp_factor = 0.4f + 0.01f * tp_led_brt;
                 dx = dx * 3 / 2 * tp_factor;
