@@ -89,7 +89,7 @@
             bindings = <
 &kp GRAVE  &kp F1  &kp F2    &kp F3        &kp F4     &kp F5           &bt BT_CLR  &kp C_MUTE  &kp F6      &kp F7      &kp F8  &kp F9     &kp F10  &kp BSPC
 &trans     &trans  &trans    &kp UP_ARROW  &trans     &out OUT_TOG     &kp F11     &kp F12     &trans      &trans      &trans  &kp ENTER
-&trans     &trans  &kp LEFT  &kp DOWN      &kp DOWN   &trans           &mkp RCLK   &mkp RCLK   &trans      &kp BSPC    &trans  &trans     &trans   &kp SQT
+&trans     &trans  &kp LEFT  &kp DOWN      &kp RIGHT  &trans           &mkp RCLK   &mkp RCLK   &trans      &kp BSPC    &trans  &trans     &trans   &kp SQT
 &trans     &trans  &trans    &trans        &trans     &rgb_ug RGB_TOG  &trans      &trans      &bl BL_DEC  &bl BL_INC  &trans  &trans     &trans   &trans    &trans  &trans
 &BOT       &trans  &trans    &mo 1         &kp ENTER  &kp ENTER        &mo 1       &trans      &trans      &BOT
             >;
@@ -100,11 +100,11 @@
         mouse_layer {
             display-name = "MOUSE";
             bindings = <
-&trans  &trans  &trans  &trans  &trans  &trans     &trans     &trans     &trans  &trans  &trans  &trans  &trans  &trans
-&trans  &trans  &trans  &trans  &trans  &trans     &trans     &trans     &trans  &trans  &trans  &trans
-&trans  &trans  &trans  &trans  &trans  &trans     &mkp LCLK  &mkp LCLK  &trans  &trans  &trans  &trans  &trans  &trans
-&trans  &trans  &trans  &trans  &trans  &trans     &mkp MCLK  &none      &trans  &trans  &trans  &trans  &trans  &trans  &trans  &trans
-&trans  &trans  &trans  &trans  &trans  &mkp LCLK  &mkp RCLK  &trans     &trans  &trans
+&trans  &trans  &trans  &trans  &trans  &trans    &trans     &trans     &trans  &trans  &trans  &trans  &trans  &trans
+&trans  &trans  &trans  &trans  &trans  &trans    &trans     &trans     &trans  &trans  &trans  &trans
+&trans  &trans  &trans  &trans  &trans  &trans    &mkp LCLK  &mkp LCLK  &trans  &trans  &trans  &trans  &trans  &trans
+&trans  &trans  &trans  &trans  &trans  &trans    &mkp MCLK  &none      &trans  &trans  &trans  &trans  &trans  &trans  &trans  &trans
+&trans  &trans  &trans  &trans  &trans  &mkp MB1  &mkp MB2   &trans     &trans  &trans
             >;
 
             sensor-bindings = <&inc_dec_kp PG_UP PG_DN &inc_dec_kp HOME END>;
