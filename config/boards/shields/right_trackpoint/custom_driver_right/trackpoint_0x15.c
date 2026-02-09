@@ -37,18 +37,13 @@ static const struct device *motion_gpio_dev;
 
 /* ========= 全局状态 ========= */
 static const struct device *trackpoint_dev_ref = NULL;
-static bool space_pressed = false;  // 空格键被按住时，小红点变为鼠标移动模式
+static bool space_pressed = false;
 uint32_t last_packet_time = 0;
 
-/* ========= 空格键监听 =========
- * 通过检测空格键状态切换小红点模式：
+/* ========= Space 按键监听 =========
+ * 检测空格键(position 61)状态切换小红点模式：
  * - 空格未按：滚动模式
  * - 空格按住：鼠标移动模式
- *
- * 注意：空格键位置需要根据实际keymap确定
- * 左手拇指区：LCTRL(28) LALT(29) LGUI(30) mo1(31) SPACE(32)
- * 右手拇指区：mo1(33) SPACE(34) RGUI(35) RALT(36) RCTRL(37)
- * 这里监听两个空格键位置
  */
 static int space_listener_cb(const zmk_event_t *eh) {
     const struct zmk_position_state_changed *ev = as_zmk_position_state_changed(eh);
@@ -56,10 +51,9 @@ static int space_listener_cb(const zmk_event_t *eh) {
         return 0;
     }
 
-    // 监听两个空格键位置（左手32，右手34）
-    if (ev->position == 32 || ev->position == 34) {
+    if (ev->position == 61) { // Space position code (与参考分支一致)
         space_pressed = ev->state;
-        LOG_INF("Space position=%d %s", ev->position, space_pressed ? "PRESSED" : "RELEASED");
+        LOG_INF("space position=61 %s", space_pressed ? "PRESSED" : "RELEASED");
     }
     return 0;
 }
@@ -110,26 +104,33 @@ static void trackpoint_poll_work(struct k_work *work) {
         /* INTPIN 拉低，读取数据包 */
         int8_t dx = 0, dy = 0;
         if (trackpoint_read_packet(dev, &dx, &dy) == 0) {
-            if (!space_pressed) {
-                /* 空格未按：作为滚轮（只保留垂直滚动，与参考分支一致） */
-                int16_t scroll_y = 0;
+            if (space_pressed) {
+                /* 空格按住时：作为滚轮 */
+                int16_t scroll_x = 0, scroll_y = 0;
                 if (abs(dy) >= 128) {
+                    scroll_x = -dx / 24;
                     scroll_y = -dy / 24;
                 } else if (abs(dy) >= 64) {
+                    scroll_x = -dx / 16;
                     scroll_y = -dy / 16;
                 } else if (abs(dy) >= 32) {
+                    scroll_x = -dx / 12;
                     scroll_y = -dy / 12;
                 } else if (abs(dy) >= 21) {
+                    scroll_x = -dx / 8;
                     scroll_y = -dy / 8;
                 } else if (abs(dy) >= 3) {
+                    scroll_x = (dx > 0) ? -1 : (dx < 0) ? 1 : 0;
                     scroll_y = (dy > 0) ? -1 : (dy < 0) ? 1 : 0;
                 } else {
+                    scroll_x = (dx > 0) ? -1 : (dx < 0) ? 1 : 0;
                     scroll_y = 0;
                 }
+                input_report_rel(dev, INPUT_REL_HWHEEL, scroll_x, false, K_FOREVER);
                 input_report_rel(dev, INPUT_REL_WHEEL, -scroll_y, true, K_FOREVER);
                 k_sleep(K_MSEC(40));
             } else {
-                /* 空格按住时：正常鼠标移动 */
+                /* 空格未按：正常鼠标移动 */
                 uint8_t tp_led_brt = custom_led_get_last_valid_brightness();
                 float tp_factor = 0.4f + 0.01f * tp_led_brt;
                 dx = dx * 3 / 2 * tp_factor;
