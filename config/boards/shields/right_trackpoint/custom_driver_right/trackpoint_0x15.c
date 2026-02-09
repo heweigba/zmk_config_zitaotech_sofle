@@ -14,8 +14,6 @@
 
 #include <zmk/event_manager.h>
 #include <zmk/events/position_state_changed.h>
-#include <zmk/events/layer_state_changed.h>
-#include <zmk/layers.h>
 
 #include <zephyr/input/input.h>
 #include <zephyr/logging/log.h>
@@ -37,29 +35,36 @@ static const struct device *motion_gpio_dev;
 #define TRACKPOINT_PACKET_LEN 7
 #define TRACKPOINT_MAGIC_BYTE0 0x50
 
-/* ========= 层定义 ========= */
-#define MOUSE_LAYER 2
-
 /* ========= 全局状态 ========= */
 static const struct device *trackpoint_dev_ref = NULL;
-static bool mouse_layer_active = false;
+static bool space_pressed = false;  // 空格键被按住时，小红点变为鼠标移动模式
 uint32_t last_packet_time = 0;
 
-/* ========= 层变化监听 ========= */
-static int layer_listener_cb(const zmk_event_t *eh) {
-    const struct zmk_layer_state_changed *ev = as_zmk_layer_state_changed(eh);
+/* ========= 空格键监听 =========
+ * 通过检测空格键状态切换小红点模式：
+ * - 空格未按：滚动模式
+ * - 空格按住：鼠标移动模式
+ *
+ * 注意：空格键位置需要根据实际keymap确定
+ * 左手拇指区：LCTRL(28) LALT(29) LGUI(30) mo1(31) SPACE(32)
+ * 右手拇指区：mo1(33) SPACE(34) RGUI(35) RALT(36) RCTRL(37)
+ * 这里监听两个空格键位置
+ */
+static int space_listener_cb(const zmk_event_t *eh) {
+    const struct zmk_position_state_changed *ev = as_zmk_position_state_changed(eh);
     if (!ev) {
         return 0;
     }
 
-    if (ev->layer == MOUSE_LAYER) {
-        mouse_layer_active = ev->state;
-        LOG_INF("MOUSE layer %s", mouse_layer_active ? "ACTIVE" : "INACTIVE");
+    // 监听两个空格键位置（左手32，右手34）
+    if (ev->position == 32 || ev->position == 34) {
+        space_pressed = ev->state;
+        LOG_INF("Space position=%d %s", ev->position, space_pressed ? "PRESSED" : "RELEASED");
     }
     return 0;
 }
-ZMK_LISTENER(trackpoint_layer_listener, layer_listener_cb);
-ZMK_SUBSCRIPTION(trackpoint_layer_listener, zmk_layer_state_changed);
+ZMK_LISTENER(trackpoint_space_listener, space_listener_cb);
+ZMK_SUBSCRIPTION(trackpoint_space_listener, zmk_position_state_changed);
 
 /* ========= TrackPoint 配置结构 ========= */
 struct trackpoint_config {
@@ -105,8 +110,8 @@ static void trackpoint_poll_work(struct k_work *work) {
         /* INTPIN 拉低，读取数据包 */
         int8_t dx = 0, dy = 0;
         if (trackpoint_read_packet(dev, &dx, &dy) == 0) {
-            if (!mouse_layer_active) {
-                /* 普通层：作为滚轮 */
+            if (!space_pressed) {
+                /* 空格未按：作为滚轮 */
                 int16_t scroll_x = 0, scroll_y = 0;
                 if (abs(dy) >= 128) {
                     scroll_x = -dx / 24;
@@ -131,7 +136,7 @@ static void trackpoint_poll_work(struct k_work *work) {
                 input_report_rel(dev, INPUT_REL_WHEEL, -scroll_y, true, K_FOREVER);
                 k_sleep(K_MSEC(40));
             } else {
-                /* MOUSE层：正常鼠标移动 */
+                /* 空格按住时：正常鼠标移动 */
                 uint8_t tp_led_brt = custom_led_get_last_valid_brightness();
                 float tp_factor = 0.4f + 0.01f * tp_led_brt;
                 dx = dx * 3 / 2 * tp_factor;
