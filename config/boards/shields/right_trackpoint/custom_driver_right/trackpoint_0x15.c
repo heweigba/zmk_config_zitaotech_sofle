@@ -104,8 +104,8 @@ static void trackpoint_poll_work(struct k_work *work) {
         /* INTPIN 拉低，读取数据包 */
         int8_t dx = 0, dy = 0;
         if (trackpoint_read_packet(dev, &dx, &dy) == 0) {
-            if (space_pressed) {
-                /* 空格按住时：作为滚轮 */
+            if (!space_pressed) {
+                /* 空格未按：作为滚轮 */
                 int16_t scroll_x = 0, scroll_y = 0;
                 if (abs(dy) >= 128) {
                     scroll_x = -dx / 24;
@@ -130,7 +130,7 @@ static void trackpoint_poll_work(struct k_work *work) {
                 input_report_rel(dev, INPUT_REL_WHEEL, -scroll_y, true, K_FOREVER);
                 k_sleep(K_MSEC(40));
             } else {
-                /* 空格未按：正常鼠标移动 */
+                /* 空格按住时：正常鼠标移动 */
                 uint8_t tp_led_brt = custom_led_get_last_valid_brightness();
                 float tp_factor = 0.4f + 0.01f * tp_led_brt;
                 dx = dx * 3 / 2 * tp_factor;
