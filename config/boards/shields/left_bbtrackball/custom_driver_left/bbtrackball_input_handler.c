@@ -125,19 +125,19 @@ static int layer_listener_cb(const zmk_event_t *eh) {
         /* 释放所有方向键，防止卡键 */
         if (!func_layer_active) {
             if (arrow_up_sent) {
-                send_arrow_key(HID_USAGE_KEY_UP_ARROW, false);
+                send_arrow_key(0x52, false);
                 arrow_up_sent = false;
             }
             if (arrow_down_sent) {
-                send_arrow_key(HID_USAGE_KEY_DOWN_ARROW, false);
+                send_arrow_key(0x51, false);
                 arrow_down_sent = false;
             }
             if (arrow_left_sent) {
-                send_arrow_key(HID_USAGE_KEY_LEFT_ARROW, false);
+                send_arrow_key(0x50, false);
                 arrow_left_sent = false;
             }
             if (arrow_right_sent) {
-                send_arrow_key(HID_USAGE_KEY_RIGHT_ARROW, false);
+                send_arrow_key(0x4F, false);
                 arrow_right_sent = false;
             }
         }
@@ -191,38 +191,38 @@ static void arrow_repeat_work_handler(struct k_work *work) {
 
     /* === FUNC层激活 → 方向键模式 === */
     if (func_layer_active) {
-        /* X轴: 左右方向键 */
+        /* X轴: 左右方向键 (0x4F=RIGHT, 0x50=LEFT) */
         if (dx > 0 && !arrow_right_sent) {
-            send_arrow_key(HID_USAGE_KEY_RIGHT_ARROW, true);
+            send_arrow_key(0x4F, true);
             arrow_right_sent = true;
         } else if (dx < 0 && !arrow_left_sent) {
-            send_arrow_key(HID_USAGE_KEY_LEFT_ARROW, true);
+            send_arrow_key(0x50, true);
             arrow_left_sent = true;
         } else if (dx == 0) {
             if (arrow_right_sent) {
-                send_arrow_key(HID_USAGE_KEY_RIGHT_ARROW, false);
+                send_arrow_key(0x4F, false);
                 arrow_right_sent = false;
             }
             if (arrow_left_sent) {
-                send_arrow_key(HID_USAGE_KEY_LEFT_ARROW, false);
+                send_arrow_key(0x50, false);
                 arrow_left_sent = false;
             }
         }
 
-        /* Y轴: 上下方向键 */
+        /* Y轴: 上下方向键 (0x52=UP, 0x51=DOWN) */
         if (dy > 0 && !arrow_down_sent) {
-            send_arrow_key(HID_USAGE_KEY_DOWN_ARROW, true);
+            send_arrow_key(0x51, true);
             arrow_down_sent = true;
         } else if (dy < 0 && !arrow_up_sent) {
-            send_arrow_key(HID_USAGE_KEY_UP_ARROW, true);
+            send_arrow_key(0x52, true);
             arrow_up_sent = true;
         } else if (dy == 0) {
             if (arrow_down_sent) {
-                send_arrow_key(HID_USAGE_KEY_DOWN_ARROW, false);
+                send_arrow_key(0x51, false);
                 arrow_down_sent = false;
             }
             if (arrow_up_sent) {
-                send_arrow_key(HID_USAGE_KEY_UP_ARROW, false);
+                send_arrow_key(0x52, false);
                 arrow_up_sent = false;
             }
         }
