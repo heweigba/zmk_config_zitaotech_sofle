@@ -53,11 +53,10 @@
             compatible = "zmk,input-processor-behaviors";
             #input-processor-cells = <0>;
             type = <INPUT_EV_REL>;
-            codes = <INPUT_REL_X INPUT_REL_Y>;
             /* X轴：右→RIGHT，左→LEFT */
             /* Y轴：下→DOWN，上→UP */
-            bindings = <&kp RIGHT &kp LEFT>,
-                       <&kp DOWN &kp UP>;
+            codes = <INPUT_REL_X INPUT_REL_Y>;
+            bindings = <&kp RIGHT>, <&kp LEFT>, <&kp DOWN>, <&kp UP>;
         };
     };
 };
