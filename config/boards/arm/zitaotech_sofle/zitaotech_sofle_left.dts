@@ -125,9 +125,9 @@
 };*/
 
 
-/* 启用 trackpoint_listener 并绑定层切换处理器 */
+/* 启用 trackpoint_listener */
 &trackpoint_listener {
-    /* 添加 input-processor 来处理层切换 */
+    status = "okay";
 };
 lpm_view_spi: &spi2 {
     compatible = "nordic,nrf-spim";
