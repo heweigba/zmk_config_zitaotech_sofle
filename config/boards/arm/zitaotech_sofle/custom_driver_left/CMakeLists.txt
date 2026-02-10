@@ -3,5 +3,4 @@
 
 target_sources(app PRIVATE
     keyboard_backlight.c
-    mouse_layer_controller.c
 )

@@ -6,6 +6,9 @@
 */
 
 #include "zitaotech_sofle.dtsi"
+#include <zephyr/dt-bindings/input/input-event-codes.h>
+
+#define MOUSE_LAYER_ID 2
 
 
 / {
@@ -125,10 +128,10 @@
 };*/
 
 
-/* 启用 trackpoint_listener */
+/* 启用 trackpoint_listener，并绑定临时层切换处理器 */
 &trackpoint_listener {
     status = "okay";
-    /* 层切换处理器在 C 代码中通过 INPUT_CALLBACK_DEFINE 注册 */
+    input-processors = <&zip_temp_layer MOUSE_LAYER_ID 400>;
 };
 lpm_view_spi: &spi2 {
     compatible = "nordic,nrf-spim";
