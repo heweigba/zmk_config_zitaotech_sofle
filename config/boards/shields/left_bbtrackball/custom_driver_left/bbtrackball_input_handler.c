@@ -92,7 +92,7 @@ static void send_arrow_key(uint16_t keycode, bool pressed) {
     } else {
         zmk_hid_keyboard_release(keycode);
     }
-    zmk_endpoints_send_keyboard_report();
+    zmk_endpoints_send_report(0x07);  /* 0x07 = Keyboard usage page */
 }
 
 /* ==== Space Listener ==== */
