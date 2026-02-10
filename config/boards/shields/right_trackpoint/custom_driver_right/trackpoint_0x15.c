@@ -14,7 +14,6 @@
 
 #include <zmk/event_manager.h>
 #include <zmk/events/position_state_changed.h>
-#include <zmk/events/layer_state_changed.h>
 #include <zmk/keymap.h>
 
 #include <zephyr/input/input.h>
