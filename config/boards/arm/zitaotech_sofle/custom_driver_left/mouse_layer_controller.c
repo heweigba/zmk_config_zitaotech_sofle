@@ -3,8 +3,6 @@
  *
  * 功能：监听右手小红点输入，检测到移动时自动进入鼠标层
  * 停止移动后自动退出鼠标层
- *
- * 注意：通过 INPUT_CALLBACK_DEFINE 注册到 trackpoint_listener 设备
  */
 
 #include <zephyr/kernel.h>
@@ -24,6 +22,7 @@ LOG_MODULE_REGISTER(mouse_layer_ctrl, LOG_LEVEL_INF);
 static bool mouse_layer_active = false;
 static uint32_t last_movement_time = 0;
 static struct k_work_delayable timeout_work;
+static struct input_callback input_cb;
 
 /* 超时处理：停止移动后退出鼠标层 */
 static void timeout_handler(struct k_work *work) {
@@ -34,12 +33,13 @@ static void timeout_handler(struct k_work *work) {
         mouse_layer_active = false;
         LOG_INF("Mouse layer OFF (timeout)");
     }
+
+    /* 继续调度检查 */
+    k_work_schedule(&timeout_work, K_MSEC(100));
 }
 
-/* 输入事件处理函数 - 会被 trackpoint_listener 调用 */
+/* 输入事件处理函数 */
 static void mouse_layer_input_handler(struct input_event *evt) {
-    LOG_DBG("Input: type=%d code=%d val=%d", evt->type, evt->code, evt->value);
-
     if (evt->type != INPUT_EV_REL) {
         return;
     }
@@ -53,7 +53,7 @@ static void mouse_layer_input_handler(struct input_event *evt) {
             uint32_t now = k_uptime_get_32();
             last_movement_time = now;
 
-            LOG_DBG("Movement detected: %d", value);
+            LOG_DBG("Trackpoint movement: code=%d value=%d", evt->code, value);
 
             /* 激活鼠标层 */
             if (!mouse_layer_active) {
@@ -79,7 +79,7 @@ static int layer_listener_cb(const zmk_event_t *eh) {
 
     if (ev->layer == MOUSE_LAYER_ID) {
         mouse_layer_active = ev->state;
-        LOG_DBG("Layer %d state: %d", MOUSE_LAYER_ID, ev->state);
+        LOG_DBG("Layer %d state changed: %d", MOUSE_LAYER_ID, ev->state);
     }
     return 0;
 }
@@ -87,26 +87,30 @@ static int layer_listener_cb(const zmk_event_t *eh) {
 ZMK_LISTENER(mouse_layer_listener, layer_listener_cb);
 ZMK_SUBSCRIPTION(mouse_layer_listener, zmk_layer_state_changed);
 
-/* 初始化 */
-static int mouse_layer_ctrl_init(const struct device *dev) {
+/* 初始化 - 在 POST_KERNEL 阶段注册 input 回调 */
+static int mouse_layer_ctrl_init(void) {
     LOG_INF("Mouse layer controller init");
+
     k_work_init_delayable(&timeout_work, timeout_handler);
+
+    /* 初始化 input 回调结构 */
+    input_cb.handler = mouse_layer_input_handler;
+    input_cb.user_data = NULL;
+
+    /* 注册全局 input 回调 - 接收所有 input 设备的事件 */
+    int ret = input_register_callback(&input_cb);
+    if (ret < 0) {
+        LOG_ERR("Failed to register input callback: %d", ret);
+        return ret;
+    }
+
+    LOG_INF("Input callback registered successfully");
+
+    /* 启动超时检查 */
+    k_work_schedule(&timeout_work, K_MSEC(100));
+
     return 0;
 }
 
-/* 使用 SYS_INIT 初始化 */
-SYS_INIT(mouse_layer_ctrl_init, APPLICATION, CONFIG_APPLICATION_INIT_PRIORITY);
-
-/* 注册 input 回调到 trackpoint_listener 设备
- * 注意：trackpoint_listener 是在 zitaotech_sofle.dtsi 中定义的节点
- */
-#define TRACKPOINT_LISTENER_NODE DT_NODELABEL(trackpoint_listener)
-
-/* 这个回调会在每次 trackpoint_listener 接收到输入事件时被调用 */
-void trackpoint_listener_input_handler(struct input_event *evt, void *user_data) {
-    mouse_layer_input_handler(evt);
-}
-
-/* 注册回调 - 绑定到 trackpoint_listener 设备 */
-INPUT_CALLBACK_DEFINE(DEVICE_DT_GET(TRACKPOINT_LISTENER_NODE),
-                      trackpoint_listener_input_handler, NULL);
+/* 在 POST_KERNEL 阶段初始化，确保 input 子系统已就绪 */
+SYS_INIT(mouse_layer_ctrl_init, POST_KERNEL, 90);
