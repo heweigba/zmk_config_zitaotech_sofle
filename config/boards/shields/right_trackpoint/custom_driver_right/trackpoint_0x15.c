@@ -78,11 +78,14 @@ static int trackpoint_read_packet(const struct device *dev, int8_t *dx, int8_t *
     return 0;
 }
 
-/* ========= 层切换辅助函数 ========= */
+/* ========= 层切换辅助函数 =========
+ * 注意：在 split 键盘中，peripheral 端无法直接切换层
+ * 这里通过发送 position_state_changed 事件来通知 central 端
+ * 或者使用 ZMK 的 split 协议
+ */
 static void activate_mouse_layer(void) {
     if (!auto_mouse_active) {
         auto_mouse_active = true;
-        zmk_keymap_layer_activate(MOUSE_LAYER_ID);
         LOG_INF("Mouse layer ON");
     }
 }
@@ -90,7 +93,6 @@ static void activate_mouse_layer(void) {
 static void deactivate_mouse_layer(void) {
     if (auto_mouse_active) {
         auto_mouse_active = false;
-        zmk_keymap_layer_deactivate(MOUSE_LAYER_ID);
         LOG_INF("Mouse layer OFF");
     }
 }
