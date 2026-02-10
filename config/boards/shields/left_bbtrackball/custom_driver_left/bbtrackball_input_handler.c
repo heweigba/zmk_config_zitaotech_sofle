@@ -1,8 +1,9 @@
 /*
- * bbtrackball_input_handler.c - BB Trackball (严格限速模式)
+ * bbtrackball_input_handler.c - BB Trackball (动态窗口加速)
  *
- * 算法：每个脉冲触发1个字，有最小间隔限制，防止跳太多
- * 类似黑莓手机：一格一格走，不加速，只限速
+ * 算法：检测最近3个脉冲的间隔密度
+ * - 稀疏脉冲(慢速) → 1格
+ * - 密集脉冲(快速) → 多格
  * SPDX-License-Identifier: MIT
  */
 
@@ -19,7 +20,7 @@
 
 LOG_MODULE_REGISTER(bbtrackball_input_handler, LOG_LEVEL_INF);
 
-/* ==== GPIO Pins (黑莓原版轨迹球) ==== */
+/* ==== GPIO Pins ==== */
 #define DOWN_GPIO_PIN 9
 #define LEFT_GPIO_PIN 12
 #define UP_GPIO_PIN 5
@@ -28,10 +29,16 @@ LOG_MODULE_REGISTER(bbtrackball_input_handler, LOG_LEVEL_INF);
 #define GPIO0_DEV DT_NODELABEL(gpio0)
 #define GPIO1_DEV DT_NODELABEL(gpio1)
 
-/* ==== 限速参数 ==== */
-#define MIN_STEP_INTERVAL_MS 55     /* 最小步进间隔，越小越灵敏但越容易跳 */
-#define KEY_PRESS_MS 25             /* 按键按下时间，模拟真实按键 */
-#define SCROLL_INTERVAL_MS 80       /* 滚动模式的间隔 */
+/* ==== 动态窗口参数 ==== */
+#define WINDOW_SIZE 3              /* 看最近3个脉冲 */
+#define BASE_INTERVAL_MS 40        /* 基础处理间隔 */
+
+/* 速度档位 (根据平均脉冲间隔划分) */
+#define SPEED_SLOW_MS 180          /* >180ms: 慢速,1格 */
+#define SPEED_MED_MS 120           /* 120-180ms: 中速,2格 */
+#define SPEED_FAST_MS 70           /* 70-120ms: 快速,3格 */
+#define SPEED_VFAST_MS 40          /* 40-70ms: 很快,5格 */
+                                   /* <40ms: 极速,8格 */
 
 /* ==== 方向定义 ==== */
 enum {
@@ -51,24 +58,22 @@ typedef struct {
     const struct device *gpio_dev;
     int pin;
     int last_state;
-    uint32_t last_trigger;   /* 上次触发时间 */
-    int pending_steps;       /* 待执行的步数 */
-    bool key_pressed;        /* 当前是否按住 */
+    uint32_t pulse_times[WINDOW_SIZE];  /* 最近脉冲时间窗口 */
+    uint8_t pulse_idx;                  /* 当前写入位置 */
+    uint8_t pulse_count;                /* 窗口中有效脉冲数 */
+    int pending_steps;                  /* 待执行步数 */
 } DirState;
 
-/* 方向修正：往左划→左，往右划→右，往上划→上，往下划→下 */
+/* 方向修正 */
 static DirState dir_states[DIR_COUNT] = {
-    [DIR_LEFT]  = {DEVICE_DT_GET(GPIO0_DEV), RIGHT_GPIO_PIN, 1, 0, 0, false},
-    [DIR_RIGHT] = {DEVICE_DT_GET(GPIO0_DEV), LEFT_GPIO_PIN, 1, 0, 0, false},
-    [DIR_UP]    = {DEVICE_DT_GET(GPIO1_DEV), DOWN_GPIO_PIN, 1, 0, 0, false},
-    [DIR_DOWN]  = {DEVICE_DT_GET(GPIO0_DEV), UP_GPIO_PIN, 1, 0, 0, false},
+    [DIR_LEFT]  = {DEVICE_DT_GET(GPIO0_DEV), RIGHT_GPIO_PIN, 1, {0}, 0, 0, 0},
+    [DIR_RIGHT] = {DEVICE_DT_GET(GPIO0_DEV), LEFT_GPIO_PIN, 1, {0}, 0, 0, 0},
+    [DIR_UP]    = {DEVICE_DT_GET(GPIO1_DEV), DOWN_GPIO_PIN, 1, {0}, 0, 0, 0},
+    [DIR_DOWN]  = {DEVICE_DT_GET(GPIO0_DEV), UP_GPIO_PIN, 1, {0}, 0, 0, 0},
 };
 
 static struct gpio_callback gpio_cbs[DIR_COUNT];
-
-/* ==== 定时器 ==== */
-static struct k_work_delayable step_work;
-static struct k_work_delayable key_release_works[DIR_COUNT];
+static struct k_work_delayable process_work;
 
 /* ==== Device Config/Data ==== */
 struct bbtrackball_dev_config {
@@ -90,33 +95,61 @@ static void send_arrow_key(uint8_t keycode, bool pressed) {
     zmk_endpoints_send_report(0x07);
 }
 
-/* ==== 触发一次方向键 (按下+释放) ==== */
+/* ==== 触发一次方向键 ==== */
 static void trigger_key_press(uint8_t dir) {
     uint8_t keycode;
     switch (dir) {
-        case DIR_LEFT:  keycode = 0x50; break; /* LEFT */
-        case DIR_RIGHT: keycode = 0x4F; break; /* RIGHT */
-        case DIR_UP:    keycode = 0x52; break; /* UP */
-        case DIR_DOWN:  keycode = 0x51; break; /* DOWN */
+        case DIR_LEFT:  keycode = 0x50; break;
+        case DIR_RIGHT: keycode = 0x4F; break;
+        case DIR_UP:    keycode = 0x52; break;
+        case DIR_DOWN:  keycode = 0x51; break;
         default: return;
     }
-
     send_arrow_key(keycode, true);
     send_arrow_key(keycode, false);
-    LOG_DBG("Dir %d triggered", dir);
 }
 
-/* ==== 释放按键的work handler ==== */
-static void key_release_handler(struct k_work *work) {
-    for (int i = 0; i < DIR_COUNT; i++) {
-        if (work == &key_release_works[i].work) {
-            dir_states[i].key_pressed = false;
-            return;
+/* ==== 计算速度档位 ==== */
+static int calc_speed_steps(DirState *d, uint32_t now) {
+    if (d->pulse_count < 2) {
+        /* 脉冲太少，算1格 */
+        return 1;
+    }
+
+    /* 计算窗口内平均间隔 */
+    uint32_t total_interval = 0;
+    uint8_t valid_count = 0;
+
+    for (int i = 1; i < d->pulse_count; i++) {
+        int idx_curr = (d->pulse_idx - i + WINDOW_SIZE) % WINDOW_SIZE;
+        int idx_prev = (d->pulse_idx - i - 1 + WINDOW_SIZE) % WINDOW_SIZE;
+        uint32_t interval = d->pulse_times[idx_curr] - d->pulse_times[idx_prev];
+        if (interval > 0 && interval < 500) {  /* 过滤异常值 */
+            total_interval += interval;
+            valid_count++;
         }
+    }
+
+    if (valid_count == 0) return 1;
+
+    uint32_t avg_interval = total_interval / valid_count;
+    LOG_DBG("Avg interval: %d ms", avg_interval);
+
+    /* 根据平均间隔返回跳跃数 */
+    if (avg_interval > SPEED_SLOW_MS) {
+        return 1;  /* 慢速: 1格 */
+    } else if (avg_interval > SPEED_MED_MS) {
+        return 2;  /* 中速: 2格 */
+    } else if (avg_interval > SPEED_FAST_MS) {
+        return 3;  /* 快速: 3格 */
+    } else if (avg_interval > SPEED_VFAST_MS) {
+        return 5;  /* 很快: 5格 */
+    } else {
+        return 8;  /* 极速: 8格封顶 */
     }
 }
 
-/* ==== Space Listener (滚动模式) ==== */
+/* ==== Space Listener ==== */
 static int space_listener_cb(const zmk_event_t *eh) {
     const struct zmk_position_state_changed *ev = as_zmk_position_state_changed(eh);
     if (!ev) return 0;
@@ -131,7 +164,7 @@ static int space_listener_cb(const zmk_event_t *eh) {
 ZMK_LISTENER(space_listener, space_listener_cb);
 ZMK_SUBSCRIPTION(space_listener, zmk_position_state_changed);
 
-/* ==== GPIO 中断回调 (脉冲检测) ==== */
+/* ==== GPIO 中断回调 ==== */
 static void dir_edge_cb(const struct device *dev, struct gpio_callback *cb, uint32_t pins) {
     uint32_t now = k_uptime_get_32();
 
@@ -141,15 +174,17 @@ static void dir_edge_cb(const struct device *dev, struct gpio_callback *cb, uint
             int val = gpio_pin_get(dev, d->pin);
             if (val != d->last_state) {
                 d->last_state = val;
-                /* 下降沿 = 一个脉冲 */
-                if (val == 0) {
-                    /* 检查是否已经过了最小间隔 */
-                    if ((now - d->last_trigger) >= MIN_STEP_INTERVAL_MS) {
-                        d->pending_steps++;
-                        d->last_trigger = now;
-                        LOG_DBG("Dir %d step pending (interval=%d)",
-                                i, now - d->last_trigger);
-                    }
+                if (val == 0) {  /* 下降沿 */
+                    /* 记录脉冲时间 */
+                    d->pulse_times[d->pulse_idx] = now;
+                    d->pulse_idx = (d->pulse_idx + 1) % WINDOW_SIZE;
+                    if (d->pulse_count < WINDOW_SIZE) d->pulse_count++;
+
+                    /* 计算步数并加入pending */
+                    int steps = calc_speed_steps(d, now);
+                    d->pending_steps += steps;
+
+                    LOG_DBG("Dir %d: pulse detected, steps=%d", i, steps);
                 }
             }
             break;
@@ -157,99 +192,74 @@ static void dir_edge_cb(const struct device *dev, struct gpio_callback *cb, uint
     }
 }
 
-/* ==== 步进处理 (定时执行) ==== */
-static void step_handler(struct k_work *work) {
+/* ==== 处理步进 ==== */
+static void process_handler(struct k_work *work) {
     /* X轴 (左右) */
-    for (int axis = 0; axis < 2; axis++) {
-        int dir_neg = axis == 0 ? DIR_LEFT : DIR_UP;
-        int dir_pos = axis == 0 ? DIR_RIGHT : DIR_DOWN;
-        DirState *d_neg = &dir_states[dir_neg];
-        DirState *d_pos = &dir_states[dir_pos];
+    DirState *d_left = &dir_states[DIR_LEFT];
+    DirState *d_right = &dir_states[DIR_RIGHT];
 
-        /* 优先处理有pending的方向，避免同时触发 */
-        if (d_neg->pending_steps > 0 && d_pos->pending_steps > 0) {
-            /* 两个方向都有，先处理pending多的 */
-            if (d_neg->pending_steps >= d_pos->pending_steps) {
-                if (space_pressed) {
-                    input_report_rel(trackball_dev_ref, INPUT_REL_HWHEEL, -1, false, K_FOREVER);
-                } else {
-                    trigger_key_press(DIR_LEFT);
-                }
-                d_neg->pending_steps--;
-            } else {
-                if (space_pressed) {
-                    input_report_rel(trackball_dev_ref, INPUT_REL_HWHEEL, 1, false, K_FOREVER);
-                } else {
-                    trigger_key_press(DIR_RIGHT);
-                }
-                d_pos->pending_steps--;
-            }
-        } else if (d_neg->pending_steps > 0) {
-            if (space_pressed) {
-                input_report_rel(trackball_dev_ref, INPUT_REL_HWHEEL, -1, false, K_FOREVER);
-            } else {
-                trigger_key_press(DIR_LEFT);
-            }
-            d_neg->pending_steps--;
-        } else if (d_pos->pending_steps > 0) {
-            if (space_pressed) {
-                input_report_rel(trackball_dev_ref, INPUT_REL_HWHEEL, 1, false, K_FOREVER);
-            } else {
-                trigger_key_press(DIR_RIGHT);
-            }
-            d_pos->pending_steps--;
+    if (d_left->pending_steps > 0 && d_right->pending_steps > 0) {
+        /* 两个方向都有，抵消 */
+        int diff = d_left->pending_steps - d_right->pending_steps;
+        if (diff > 0) {
+            trigger_key_press(DIR_LEFT);
+        } else if (diff < 0) {
+            trigger_key_press(DIR_RIGHT);
         }
+        d_left->pending_steps = 0;
+        d_right->pending_steps = 0;
+    } else if (d_left->pending_steps > 0) {
+        trigger_key_press(DIR_LEFT);
+        d_left->pending_steps--;
+    } else if (d_right->pending_steps > 0) {
+        trigger_key_press(DIR_RIGHT);
+        d_right->pending_steps--;
     }
 
-    /* Y轴 (上下) - 同样逻辑 */
+    /* Y轴 (上下) */
     DirState *d_up = &dir_states[DIR_UP];
     DirState *d_down = &dir_states[DIR_DOWN];
 
     if (d_up->pending_steps > 0 && d_down->pending_steps > 0) {
-        if (d_up->pending_steps >= d_down->pending_steps) {
-            if (space_pressed) {
-                input_report_rel(trackball_dev_ref, INPUT_REL_WHEEL, 1, false, K_FOREVER);
-            } else {
-                trigger_key_press(DIR_UP);
-            }
-            d_up->pending_steps--;
-        } else {
-            if (space_pressed) {
-                input_report_rel(trackball_dev_ref, INPUT_REL_WHEEL, -1, false, K_FOREVER);
-            } else {
-                trigger_key_press(DIR_DOWN);
-            }
-            d_down->pending_steps--;
-        }
-    } else if (d_up->pending_steps > 0) {
-        if (space_pressed) {
-            input_report_rel(trackball_dev_ref, INPUT_REL_WHEEL, 1, false, K_FOREVER);
-        } else {
+        int diff = d_up->pending_steps - d_down->pending_steps;
+        if (diff > 0) {
             trigger_key_press(DIR_UP);
-        }
-        d_up->pending_steps--;
-    } else if (d_down->pending_steps > 0) {
-        if (space_pressed) {
-            input_report_rel(trackball_dev_ref, INPUT_REL_WHEEL, -1, false, K_FOREVER);
-        } else {
+        } else if (diff < 0) {
             trigger_key_press(DIR_DOWN);
         }
+        d_up->pending_steps = 0;
+        d_down->pending_steps = 0;
+    } else if (d_up->pending_steps > 0) {
+        trigger_key_press(DIR_UP);
+        d_up->pending_steps--;
+    } else if (d_down->pending_steps > 0) {
+        trigger_key_press(DIR_DOWN);
         d_down->pending_steps--;
     }
 
-    /* 继续调度 */
-    k_work_schedule(&step_work, K_MSEC(MIN_STEP_INTERVAL_MS));
+    /* 清理旧脉冲 (超过300ms的视为无效) */
+    uint32_t now = k_uptime_get_32();
+    for (int i = 0; i < DIR_COUNT; i++) {
+        DirState *d = &dir_states[i];
+        if (d->pulse_count > 0) {
+            int newest_idx = (d->pulse_idx - 1 + WINDOW_SIZE) % WINDOW_SIZE;
+            if (now - d->pulse_times[newest_idx] > 300) {
+                d->pulse_count = 0;  /* 清空窗口 */
+            }
+        }
+    }
+
+    k_work_schedule(&process_work, K_MSEC(BASE_INTERVAL_MS));
 }
 
 /* ==== 初始化 ==== */
 static int bbtrackball_init(const struct device *dev) {
     struct bbtrackball_data *data = dev->data;
 
-    LOG_INF("Initializing BBtrackball (step-limited mode)...");
-    LOG_INF("  Step interval: %dms, Key press: %dms",
-            MIN_STEP_INTERVAL_MS, KEY_PRESS_MS);
+    LOG_INF("Initializing BBtrackball (dynamic window acceleration)...");
+    LOG_INF("  Window size: %d, Speed tiers: >%dms(1), >%dms(2), >%dms(3), >%dms(5), fast(8)",
+            WINDOW_SIZE, SPEED_SLOW_MS, SPEED_MED_MS, SPEED_FAST_MS, SPEED_VFAST_MS);
 
-    /* 初始化GPIO */
     for (int i = 0; i < DIR_COUNT; i++) {
         DirState *d = &dir_states[i];
         gpio_pin_configure(d->gpio_dev, d->pin,
@@ -259,17 +269,13 @@ static int bbtrackball_init(const struct device *dev) {
         gpio_init_callback(&gpio_cbs[i], dir_edge_cb, BIT(d->pin));
         gpio_add_callback(d->gpio_dev, &gpio_cbs[i]);
         gpio_pin_interrupt_configure(d->gpio_dev, d->pin, GPIO_INT_EDGE_BOTH);
-
-        /* 初始化释放work */
-        k_work_init_delayable(&key_release_works[i], key_release_handler);
     }
 
     data->dev = dev;
     trackball_dev_ref = dev;
 
-    /* 启动步进定时器 */
-    k_work_init_delayable(&step_work, step_handler);
-    k_work_schedule(&step_work, K_MSEC(MIN_STEP_INTERVAL_MS));
+    k_work_init_delayable(&process_work, process_handler);
+    k_work_schedule(&process_work, K_MSEC(BASE_INTERVAL_MS));
 
     return 0;
 }
