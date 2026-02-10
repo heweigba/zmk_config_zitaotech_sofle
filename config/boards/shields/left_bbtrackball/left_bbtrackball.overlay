@@ -5,7 +5,6 @@
 *
 */
 #include <zephyr/dt-bindings/input/input-event-codes.h>
-#include <dt-bindings/zmk/keys.h>
 
 / {
     chosen {
@@ -46,30 +45,10 @@
         status = "disabled";
         device = <&bbtrackball>;
     };
-
-    /* 轨迹球→方向键转换器（黑莓模式） */
-    input_processors {
-        bbtrackball_to_arrows: bbtrackball_to_arrows {
-            compatible = "zmk,input-processor-behaviors";
-            #input-processor-cells = <0>;
-            type = <INPUT_EV_REL>;
-            /* X轴：右→RIGHT，左→LEFT */
-            /* Y轴：下→DOWN，上→UP */
-            codes = <INPUT_REL_X INPUT_REL_Y>;
-            bindings = <&kp RIGHT>, <&kp LEFT>, <&kp DOWN>, <&kp UP>;
-        };
-    };
 };
 
 &bbtrackball_listener {
     status = "okay";
-    /* 默认：鼠标移动模式（不添加input-processors） */
-
-    /* 在FUNC层（层1）启用方向键模式 */
-    arrow_mode {
-        layers = <1>;
-        input-processors = <&bbtrackball_to_arrows>;
-    };
 };
 
 &pinctrl {
@@ -86,4 +65,3 @@
         };
     };
 };
-
