@@ -30,13 +30,13 @@ LOG_MODULE_REGISTER(bbtrackball_input_handler, LOG_LEVEL_INF);
 #define GPIO0_DEV DT_NODELABEL(gpio0)
 #define GPIO1_DEV DT_NODELABEL(gpio1)
 
-/* ==== 物理惯性参数 ==== */
-#define ACCEL_PER_PULSE 1.0f       /* 每个脉冲增加的速度 */
-#define FRICTION_COEFF 0.88f       /* 摩擦系数(衰减率)，0.85-0.95之间调试 */
-#define MIN_VELOCITY 0.5f          /* 速度低于此值停止 */
-#define MAX_JUMP 8                 /* 最大跳跃字数，防止失控 */
-#define VELOCITY_SCALE 0.4f        /* 速度转跳跃距离的系数 */
-#define TICK_INTERVAL_MS 12        /* 物理 tick 间隔 */
+/* ==== 物理惯性参数 (温和起步版) ==== */
+#define ACCEL_PER_PULSE 0.6f       /* 每个脉冲增加的速度(降低，起步更温和) */
+#define FRICTION_COEFF 0.78f       /* 摩擦系数(提高衰减，0.78=快速减速) */
+#define MIN_VELOCITY 0.3f          /* 速度低于此值停止 */
+#define MAX_JUMP 5                 /* 最大跳跃字数降低 */
+#define VELOCITY_SCALE 0.15f       /* 速度转跳跃距离(降低，起步1-2字) */
+#define TICK_INTERVAL_MS 15        /* 物理 tick 间隔(稍长，更可控) */
 
 /* ==== 方向定义 ==== */
 enum {
@@ -186,11 +186,22 @@ static void physics_handler(struct k_work *work) {
         if (d_pos->velocity < MIN_VELOCITY) d_pos->velocity = 0;
         if (d_neg->velocity < MIN_VELOCITY) d_neg->velocity = 0;
 
-        /* 根据速度计算跳跃距离 */
+        /* 根据速度计算跳跃距离 (非线性映射，起步温和) */
         if (fabsf(net_velocity) >= MIN_VELOCITY) {
-            int jump = (int)(fabsf(net_velocity) * VELOCITY_SCALE);
-            if (jump < 1) jump = 1;
-            if (jump > MAX_JUMP) jump = MAX_JUMP;
+            float abs_vel = fabsf(net_velocity);
+            int jump;
+            /* 非线性分段：轻触1字，中速2-3字，高速4-5字 */
+            if (abs_vel < 3.0f) {
+                jump = 1;  /* 轻触：1个字 */
+            } else if (abs_vel < 6.0f) {
+                jump = 2;  /* 中低速：2个字 */
+            } else if (abs_vel < 10.0f) {
+                jump = 3;  /* 中速：3个字 */
+            } else if (abs_vel < 15.0f) {
+                jump = 4;  /* 高速：4个字 */
+            } else {
+                jump = MAX_JUMP;  /* 极速：封顶 */
+            }
 
             uint8_t dir = net_velocity > 0 ? dir_pos : dir_neg;
 
