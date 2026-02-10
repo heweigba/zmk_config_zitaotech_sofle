@@ -42,6 +42,11 @@ static bool auto_mouse_active = false;  // 检测到移动时自动进入鼠标�
 static uint32_t last_movement_time = 0; // 上次移动时间
 uint32_t last_packet_time = 0;
 
+/* ========= 滚动模式状态 ========= */
+static int16_t scroll_accumulator_x = 0;  // 水平滚动累计
+static int16_t scroll_accumulator_y = 0;  // 垂直滚动累计
+#define SCROLL_THRESHOLD 8               // 滚动阈值，累计超过此值才发送滚动事件
+
 /* ========= 层切换常量 ========= */
 #define MOUSE_LAYER_ID 2           /* MOUSE 层 ID */
 #define AUTO_MOUSE_TIMEOUT_MS 400  /* 停止移动后400ms退出鼠标层 */
@@ -121,13 +126,47 @@ static void trackpoint_poll_work(struct k_work *work) {
                 activate_mouse_layer();
             }
 
-            /* 默认直接移动鼠标（不在鼠标层时也移动，以便随时使用） */
+            /* 根据当前层选择模式 */
+            uint8_t highest_layer = zmk_keymap_highest_layer_active();
             uint8_t tp_led_brt = custom_led_get_last_valid_brightness();
             float tp_factor = 0.4f + 0.01f * tp_led_brt;
-            dx = dx * 3 / 2 * tp_factor;
-            dy = dy * 3 / 2 * tp_factor;
-            input_report_rel(dev, INPUT_REL_X, -dx, false, K_FOREVER);
-            input_report_rel(dev, INPUT_REL_Y, -dy, true, K_FOREVER);
+
+            if (highest_layer == MOUSE_LAYER_ID) {
+                /* 鼠标层：转换为滚轮事件 */
+                int16_t scaled_dx = -(int16_t)dx * 3 / 2 * tp_factor;
+                int16_t scaled_dy = -(int16_t)dy * 3 / 2 * tp_factor;
+
+                /* 累计滚动值 */
+                scroll_accumulator_x += scaled_dx;
+                scroll_accumulator_y += scaled_dy;
+
+                int8_t scroll_x = 0;
+                int8_t scroll_y = 0;
+
+                /* 水平滚动 */
+                if (abs(scroll_accumulator_x) >= SCROLL_THRESHOLD) {
+                    scroll_x = scroll_accumulator_x / SCROLL_THRESHOLD;
+                    scroll_accumulator_x = scroll_accumulator_x % SCROLL_THRESHOLD;
+                }
+
+                /* 垂直滚动 */
+                if (abs(scroll_accumulator_y) >= SCROLL_THRESHOLD) {
+                    scroll_y = scroll_accumulator_y / SCROLL_THRESHOLD;
+                    scroll_accumulator_y = scroll_accumulator_y % SCROLL_THRESHOLD;
+                }
+
+                /* 发送滚动事件 */
+                if (scroll_x != 0 || scroll_y != 0) {
+                    input_report_rel(dev, INPUT_REL_HWHEEL, -scroll_x, false, K_FOREVER);
+                    input_report_rel(dev, INPUT_REL_WHEEL, scroll_y, true, K_FOREVER);
+                }
+            } else {
+                /* 默认层：移动鼠标 */
+                dx = dx * 3 / 2 * tp_factor;
+                dy = dy * 3 / 2 * tp_factor;
+                input_report_rel(dev, INPUT_REL_X, -dx, false, K_FOREVER);
+                input_report_rel(dev, INPUT_REL_Y, -dy, true, K_FOREVER);
+            }
         }
         last_packet_time = now;
     } else {

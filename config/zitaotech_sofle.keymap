@@ -55,12 +55,12 @@
         };
     };
 
-    /* 鼠标滚轮编码器行为 - 先用键盘上下键测试编码器是否工作 */
+    /* 鼠标滚轮编码器行为 */
     behaviors {
         msc_encoder: msc_encoder {
             compatible = "zmk,behavior-sensor-rotate";
             #sensor-binding-cells = <0>;
-            bindings = <&kp UP>, <&kp DOWN>;
+            bindings = <&msc SCRL_DOWN>, <&msc SCRL_UP>;
             tap-ms = <30>;
         };
     };
