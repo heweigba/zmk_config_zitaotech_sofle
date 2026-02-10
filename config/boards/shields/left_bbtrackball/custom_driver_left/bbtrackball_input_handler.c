@@ -85,6 +85,25 @@ struct bbtrackball_data {
     const struct device *dev;
 };
 
+/* ==== 外部接口 (供trackball_led.c使用) ==== */
+bool trackball_is_moving(void) {
+    uint32_t now = k_uptime_get_32();
+    for (int i = 0; i < DIR_COUNT; i++) {
+        DirState *d = &dir_states[i];
+        /* 有pending步数或者在最近100ms内有脉冲 */
+        if (d->pending_steps > 0) {
+            return true;
+        }
+        if (d->pulse_count > 0) {
+            int newest_idx = (d->pulse_idx - 1 + WINDOW_SIZE) % WINDOW_SIZE;
+            if (now - d->pulse_times[newest_idx] < 100) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 /* ==== 发送方向键 ==== */
 static void send_arrow_key(uint8_t keycode, bool pressed) {
     if (pressed) {
