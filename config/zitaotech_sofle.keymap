@@ -56,11 +56,13 @@
     };
 
     /* 鼠标滚轮编码器行为 */
+
     behaviors {
         msc_encoder: msc_encoder {
             compatible = "zmk,behavior-sensor-rotate";
             #sensor-binding-cells = <0>;
             bindings = <&msc SCRL_DOWN>, <&msc SCRL_UP>;
+
             tap-ms = <30>;
         };
     };
@@ -84,11 +86,11 @@
         default_layer {
             display-name = "QWERTY";
             bindings = <
-&kp ESC    &kp N1    &kp N2    &kp N3  &kp N4     &kp N5     &kp C_MUTE  &kp C_MUTE  &kp N6       &kp N7     &kp N8  &kp N9     &kp N0     &kp BSPC
-&kp TAB    &kp Q     &kp W     &kp E   &kp R      &kp T      &kp Y       &kp U       &kp I        &kp O      &kp P   &kp ENTER
-&kp CAPS   &kp A     &kp S     &kp D   &kp F      &kp G      &kp F13     &kp F14     &lt MOUSE H  &kp J      &kp K   &kp L      &kp SEMI   &kp SQT
-&kp LSHFT  &kp Z     &kp X     &kp C   &kp V      &kp B      &kp PG_DN   &kp PG_UP   &kp F13      &kp F14    &kp N   &kp M      &kp COMMA  &kp DOT   &kp FSLH  &kp DEL
-&kp LCTRL  &kp LALT  &kp LGUI  &mo 1   &kp SPACE  &kp SPACE  &mo 1       &kp RGUI    &kp RALT     &kp RCTRL
+&kp ESC    &kp N1    &kp N2    &kp N3  &kp N4     &kp N5     &kp C_MUTE  &kp LC(LS(K_PWR))  &kp N6       &kp N7     &kp N8  &kp N9     &kp N0     &kp BSPC
+&kp TAB    &kp Q     &kp W     &kp E   &kp R      &kp T      &kp Y       &kp U              &kp I        &kp O      &kp P   &kp ENTER
+&kp CAPS   &kp A     &kp S     &kp D   &kp F      &kp G      &kp ENTER   &kp F14            &lt MOUSE H  &kp J      &kp K   &kp L      &kp SEMI   &kp SQT
+&kp LSHFT  &kp Z     &kp X     &kp C   &kp V      &kp B      &kp PG_DN   &kp PG_UP          &kp F13      &kp F14    &kp N   &kp M      &kp COMMA  &kp DOT   &kp FSLH  &kp DEL
+&kp LCTRL  &kp LALT  &kp LGUI  &mo 1   &kp SPACE  &kp SPACE  &mo 1       &kp RIGHT_SHIFT    &kp RALT     &kp RCTRL
             >;
 
             sensor-bindings = <&inc_dec_kp C_VOL_UP C_VOL_DN &msc_encoder>;
@@ -97,11 +99,11 @@
         func_layer {
             display-name = "FUNC";
             bindings = <
-&kp GRAVE  &kp F1  &kp F2    &kp F3        &kp F4     &kp F5           &bt BT_CLR  &kp C_MUTE  &kp F6      &kp F7      &kp F8  &kp F9     &kp F10  &kp BSPC
-&trans     &trans  &trans    &kp UP_ARROW  &trans     &out OUT_TOG     &kp F11     &kp F12     &trans      &trans      &trans  &kp ENTER
-&trans     &trans  &kp LEFT  &kp DOWN      &kp RIGHT  &trans           &mkp RCLK   &mkp RCLK   &trans      &kp BSPC    &trans  &trans     &trans   &kp SQT
-&trans     &trans  &trans    &trans        &trans     &rgb_ug RGB_TOG  &trans      &trans      &bl BL_DEC  &bl BL_INC  &trans  &trans     &trans   &trans    &trans  &trans
-&BOT       &trans  &trans    &mo 1         &kp ENTER  &kp ENTER        &mo 1       &trans      &trans      &BOT
+&kp GRAVE  &kp F1  &kp F2    &kp F3        &kp F4     &kp F5           &bt BT_CLR  &kp C_MUTE    &kp F6        &kp F7        &kp SLASH     &kp ASTERISK  &kp MINUS      &kp BSPC
+&trans     &trans  &trans    &kp UP_ARROW  &trans     &out OUT_TOG     &kp F11     &kp NUMBER_7  &kp NUMBER_8  &kp NUMBER_9  &kp PLUS      &kp ENTER
+&trans     &trans  &kp LEFT  &kp DOWN      &kp RIGHT  &trans           &mkp RCLK   &mkp RCLK     &kp F12       &kp NUMBER_4  &kp NUMBER_5  &kp NUMBER_6  &kp BACKSPACE  &kp LEFT_BRACKET
+&trans     &trans  &trans    &trans        &trans     &rgb_ug RGB_TOG  &trans      &trans        &bl BL_DEC    &bl BL_INC    &kp F13       &kp NUMBER_1  &kp NUMBER_2   &kp NUMBER_3      &trans  &kp RIGHT_BRACKET
+&BOT       &trans  &trans    &mo 1         &kp ENTER  &kp ENTER        &mo 1       &kp NUMBER_0  &kp DOT       &BOT
             >;
 
             sensor-bindings = <&BLE_encoder &inc_dec_kp UP DOWN>;
