@@ -35,8 +35,10 @@ static void timeout_handler(struct k_work *work) {
     }
 }
 
-/* 输入事件回调 - 监听小红点移动 */
-static void trackpoint_input_cb(struct input_event *evt, void *user_data) {
+/* input-listener 回调函数 */
+static void mouse_layer_input_handler(struct input_event *evt) {
+    LOG_DBG("Input: type=%d code=%d val=%d", evt->type, evt->code, evt->value);
+
     if (evt->type != INPUT_EV_REL) {
         return;
     }
@@ -50,11 +52,17 @@ static void trackpoint_input_cb(struct input_event *evt, void *user_data) {
             uint32_t now = k_uptime_get_32();
             last_movement_time = now;
 
+            LOG_DBG("Movement detected: %d", value);
+
             /* 激活鼠标层 */
             if (!mouse_layer_active) {
-                zmk_keymap_layer_activate(MOUSE_LAYER_ID);
-                mouse_layer_active = true;
-                LOG_INF("Mouse layer ON (movement)");
+                int ret = zmk_keymap_layer_activate(MOUSE_LAYER_ID);
+                if (ret == 0) {
+                    mouse_layer_active = true;
+                    LOG_INF("Mouse layer ON");
+                } else {
+                    LOG_WRN("Failed to activate layer: %d", ret);
+                }
             }
 
             /* 重新调度超时检查 */
@@ -78,10 +86,7 @@ static int layer_listener_cb(const zmk_event_t *eh) {
 ZMK_LISTENER(mouse_layer_listener, layer_listener_cb);
 ZMK_SUBSCRIPTION(mouse_layer_listener, zmk_layer_state_changed);
 
-/* 注册输入回调 */
-INPUT_CALLBACK_DEFINE(NULL, trackpoint_input_cb, NULL);
-
-/* 初始化 */
+/* 注册为 mouse_layer_listener 设备的输入处理器 */
 static int mouse_layer_ctrl_init(const struct device *dev) {
     LOG_INF("Mouse layer controller init");
 
@@ -89,5 +94,16 @@ static int mouse_layer_ctrl_init(const struct device *dev) {
 
     return 0;
 }
+
+/* 定义 input-handler，绑定到 mouse_layer_listener 设备 */
+#define INPUT_HANDLER_NAME(node_id) _CONCAT(mouse_layer_handler_, node_id)
+
+static void INPUT_HANDLER_NAME(DT_NODELABEL(mouse_layer_listener))(struct input_event *evt) {
+    mouse_layer_input_handler(evt);
+}
+
+INPUT_CALLBACK_DEFINE(DEVICE_DT_GET(DT_NODELABEL(mouse_layer_listener)),
+                      INPUT_HANDLER_NAME(DT_NODELABEL(mouse_layer_listener)),
+                      NULL);
 
 SYS_INIT(mouse_layer_ctrl_init, APPLICATION, CONFIG_APPLICATION_INIT_PRIORITY);

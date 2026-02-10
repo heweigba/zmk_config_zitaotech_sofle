@@ -128,6 +128,13 @@
 &trackpoint_listener {
     status = "okay";
 };
+
+/* 鼠标层自动切换监听器 */
+mouse_layer_listener: mouse_layer_listener {
+    compatible = "zmk,input-listener";
+    status = "okay";
+    device = <&trackpoint_split>;
+};
 lpm_view_spi: &spi2 {
     compatible = "nordic,nrf-spim";
     pinctrl-0 = <&spi2_default>;
