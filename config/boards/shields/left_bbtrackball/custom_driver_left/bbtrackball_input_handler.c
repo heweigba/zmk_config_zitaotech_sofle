@@ -46,11 +46,12 @@ typedef struct {
     int pulse_count;       /* 脉冲计数 */
 } DirState;
 
+/* 方向修正：交换左右和上下，确保往左划→左键，往右划→右键 */
 static DirState dir_states[] = {
-    {DEVICE_DT_GET(GPIO0_DEV), LEFT_GPIO_PIN, 1, 0, 0, false, 0},
-    {DEVICE_DT_GET(GPIO0_DEV), RIGHT_GPIO_PIN, 1, 1, 0, false, 0},
-    {DEVICE_DT_GET(GPIO0_DEV), UP_GPIO_PIN, 1, 2, 0, false, 0},
-    {DEVICE_DT_GET(GPIO1_DEV), DOWN_GPIO_PIN, 1, 3, 0, false, 0},
+    {DEVICE_DT_GET(GPIO0_DEV), RIGHT_GPIO_PIN, 1, 0, 0, false, 0},  /* GPIO27 → 左 (原右引脚) */
+    {DEVICE_DT_GET(GPIO0_DEV), LEFT_GPIO_PIN, 1, 1, 0, false, 0},   /* GPIO12 → 右 (原左引脚) */
+    {DEVICE_DT_GET(GPIO1_DEV), DOWN_GPIO_PIN, 1, 2, 0, false, 0},   /* GPIO9 → 上 (原下引脚) */
+    {DEVICE_DT_GET(GPIO0_DEV), UP_GPIO_PIN, 1, 3, 0, false, 0},     /* GPIO5 → 下 (原上引脚) */
 };
 
 static struct gpio_callback gpio_cbs[ARRAY_SIZE(dir_states)];
