@@ -1,9 +1,8 @@
 /*
- * bbtrackball_input_handler.c - BB Trackball (黑莓原版物理惯性模拟)
+ * bbtrackball_input_handler.c - BB Trackball (严格限速模式)
  *
- * 算法：软件模拟黑莓轨迹球的物理阻尼感
- * - 脉冲加速，无脉冲时速度衰减（模拟摩擦力）
- * - 速度决定跳跃距离，自然流畅
+ * 算法：每个脉冲触发1个字，有最小间隔限制，防止跳太多
+ * 类似黑莓手机：一格一格走，不加速，只限速
  * SPDX-License-Identifier: MIT
  */
 
@@ -14,7 +13,6 @@
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/input/input.h>
-#include <math.h>
 #include <zmk/hid.h>
 #include <zmk/endpoints.h>
 #include <zmk/events/position_state_changed.h>
@@ -30,13 +28,10 @@ LOG_MODULE_REGISTER(bbtrackball_input_handler, LOG_LEVEL_INF);
 #define GPIO0_DEV DT_NODELABEL(gpio0)
 #define GPIO1_DEV DT_NODELABEL(gpio1)
 
-/* ==== 物理惯性参数 (温和起步版) ==== */
-#define ACCEL_PER_PULSE 0.6f       /* 每个脉冲增加的速度(降低，起步更温和) */
-#define FRICTION_COEFF 0.78f       /* 摩擦系数(提高衰减，0.78=快速减速) */
-#define MIN_VELOCITY 0.3f          /* 速度低于此值停止 */
-#define MAX_JUMP 5                 /* 最大跳跃字数降低 */
-#define VELOCITY_SCALE 0.15f       /* 速度转跳跃距离(降低，起步1-2字) */
-#define TICK_INTERVAL_MS 15        /* 物理 tick 间隔(稍长，更可控) */
+/* ==== 限速参数 ==== */
+#define MIN_STEP_INTERVAL_MS 55     /* 最小步进间隔，越小越灵敏但越容易跳 */
+#define KEY_PRESS_MS 25             /* 按键按下时间，模拟真实按键 */
+#define SCROLL_INTERVAL_MS 80       /* 滚动模式的间隔 */
 
 /* ==== 方向定义 ==== */
 enum {
@@ -51,14 +46,14 @@ enum {
 static bool space_pressed = false;
 static const struct device *trackball_dev_ref = NULL;
 
-/* ==== 每个方向的速度和脉冲计数 ==== */
+/* ==== 每个方向的状态 ==== */
 typedef struct {
     const struct device *gpio_dev;
     int pin;
     int last_state;
-    float velocity;         /* 当前速度(可正负) */
-    int pulse_accum;        /* 脉冲累积 */
-    bool active;            /* 是否正在运动 */
+    uint32_t last_trigger;   /* 上次触发时间 */
+    int pending_steps;       /* 待执行的步数 */
+    bool key_pressed;        /* 当前是否按住 */
 } DirState;
 
 /* 方向修正：往左划→左，往右划→右，往上划→上，往下划→下 */
@@ -72,7 +67,8 @@ static DirState dir_states[DIR_COUNT] = {
 static struct gpio_callback gpio_cbs[DIR_COUNT];
 
 /* ==== 定时器 ==== */
-static struct k_work_delayable physics_work;
+static struct k_work_delayable step_work;
+static struct k_work_delayable key_release_works[DIR_COUNT];
 
 /* ==== Device Config/Data ==== */
 struct bbtrackball_dev_config {
@@ -84,16 +80,6 @@ struct bbtrackball_data {
     const struct device *dev;
 };
 
-/* ==== 外部接口 ==== */
-bool trackball_is_moving(void) {
-    for (int i = 0; i < DIR_COUNT; i++) {
-        if (dir_states[i].active || dir_states[i].velocity != 0) {
-            return true;
-        }
-    }
-    return false;
-}
-
 /* ==== 发送方向键 ==== */
 static void send_arrow_key(uint8_t keycode, bool pressed) {
     if (pressed) {
@@ -104,8 +90,8 @@ static void send_arrow_key(uint8_t keycode, bool pressed) {
     zmk_endpoints_send_report(0x07);
 }
 
-/* ==== 触发一次方向键 ==== */
-static void trigger_single_step(uint8_t dir) {
+/* ==== 触发一次方向键 (按下+释放) ==== */
+static void trigger_key_press(uint8_t dir) {
     uint8_t keycode;
     switch (dir) {
         case DIR_LEFT:  keycode = 0x50; break; /* LEFT */
@@ -114,9 +100,20 @@ static void trigger_single_step(uint8_t dir) {
         case DIR_DOWN:  keycode = 0x51; break; /* DOWN */
         default: return;
     }
-    /* 按下并立即释放，模拟一次按键 */
+
     send_arrow_key(keycode, true);
     send_arrow_key(keycode, false);
+    LOG_DBG("Dir %d triggered", dir);
+}
+
+/* ==== 释放按键的work handler ==== */
+static void key_release_handler(struct k_work *work) {
+    for (int i = 0; i < DIR_COUNT; i++) {
+        if (work == &key_release_works[i].work) {
+            dir_states[i].key_pressed = false;
+            return;
+        }
+    }
 }
 
 /* ==== Space Listener (滚动模式) ==== */
@@ -136,6 +133,8 @@ ZMK_SUBSCRIPTION(space_listener, zmk_position_state_changed);
 
 /* ==== GPIO 中断回调 (脉冲检测) ==== */
 static void dir_edge_cb(const struct device *dev, struct gpio_callback *cb, uint32_t pins) {
+    uint32_t now = k_uptime_get_32();
+
     for (int i = 0; i < DIR_COUNT; i++) {
         DirState *d = &dir_states[i];
         if ((dev == d->gpio_dev) && (pins & BIT(d->pin))) {
@@ -144,9 +143,13 @@ static void dir_edge_cb(const struct device *dev, struct gpio_callback *cb, uint
                 d->last_state = val;
                 /* 下降沿 = 一个脉冲 */
                 if (val == 0) {
-                    d->pulse_accum++;
-                    d->active = true;
-                    LOG_DBG("Dir %d pulse, accum=%d", i, d->pulse_accum);
+                    /* 检查是否已经过了最小间隔 */
+                    if ((now - d->last_trigger) >= MIN_STEP_INTERVAL_MS) {
+                        d->pending_steps++;
+                        d->last_trigger = now;
+                        LOG_DBG("Dir %d step pending (interval=%d)",
+                                i, now - d->last_trigger);
+                    }
                 }
             }
             break;
@@ -154,92 +157,97 @@ static void dir_edge_cb(const struct device *dev, struct gpio_callback *cb, uint
     }
 }
 
-/* ==== 物理引擎：速度累积与衰减 ==== */
-static void physics_handler(struct k_work *work) {
-    /* X轴处理 (左右) */
+/* ==== 步进处理 (定时执行) ==== */
+static void step_handler(struct k_work *work) {
+    /* X轴 (左右) */
     for (int axis = 0; axis < 2; axis++) {
         int dir_neg = axis == 0 ? DIR_LEFT : DIR_UP;
         int dir_pos = axis == 0 ? DIR_RIGHT : DIR_DOWN;
         DirState *d_neg = &dir_states[dir_neg];
         DirState *d_pos = &dir_states[dir_pos];
 
-        /* 脉冲加速：每个脉冲增加速度 */
-        if (d_neg->pulse_accum > 0) {
-            d_neg->velocity += ACCEL_PER_PULSE * d_neg->pulse_accum;
-            d_neg->pulse_accum = 0;
-            d_pos->velocity = 0; /* 反向清零 */
-        }
-        if (d_pos->pulse_accum > 0) {
-            d_pos->velocity += ACCEL_PER_PULSE * d_pos->pulse_accum;
-            d_pos->pulse_accum = 0;
-            d_neg->velocity = 0; /* 反向清零 */
-        }
-
-        /* 计算净速度 */
-        float net_velocity = d_pos->velocity - d_neg->velocity;
-
-        /* 速度衰减 (摩擦力) */
-        d_pos->velocity *= FRICTION_COEFF;
-        d_neg->velocity *= FRICTION_COEFF;
-
-        /* 低于阈值清零 */
-        if (d_pos->velocity < MIN_VELOCITY) d_pos->velocity = 0;
-        if (d_neg->velocity < MIN_VELOCITY) d_neg->velocity = 0;
-
-        /* 根据速度计算跳跃距离 (非线性映射，起步温和) */
-        if (fabsf(net_velocity) >= MIN_VELOCITY) {
-            float abs_vel = fabsf(net_velocity);
-            int jump;
-            /* 非线性分段：轻触1字，中速2-3字，高速4-5字 */
-            if (abs_vel < 3.0f) {
-                jump = 1;  /* 轻触：1个字 */
-            } else if (abs_vel < 6.0f) {
-                jump = 2;  /* 中低速：2个字 */
-            } else if (abs_vel < 10.0f) {
-                jump = 3;  /* 中速：3个字 */
-            } else if (abs_vel < 15.0f) {
-                jump = 4;  /* 高速：4个字 */
-            } else {
-                jump = MAX_JUMP;  /* 极速：封顶 */
-            }
-
-            uint8_t dir = net_velocity > 0 ? dir_pos : dir_neg;
-
-            if (space_pressed) {
-                /* 滚动模式 */
-                int scroll = net_velocity > 0 ? jump : -jump;
-                if (axis == 0) {
-                    input_report_rel(trackball_dev_ref, INPUT_REL_HWHEEL, scroll, false, K_FOREVER);
+        /* 优先处理有pending的方向，避免同时触发 */
+        if (d_neg->pending_steps > 0 && d_pos->pending_steps > 0) {
+            /* 两个方向都有，先处理pending多的 */
+            if (d_neg->pending_steps >= d_pos->pending_steps) {
+                if (space_pressed) {
+                    input_report_rel(trackball_dev_ref, INPUT_REL_HWHEEL, -1, false, K_FOREVER);
                 } else {
-                    input_report_rel(trackball_dev_ref, INPUT_REL_WHEEL, -scroll, true, K_FOREVER);
+                    trigger_key_press(DIR_LEFT);
                 }
+                d_neg->pending_steps--;
             } else {
-                /* 方向键模式：发送jump次方向键 */
-                for (int k = 0; k < jump; k++) {
-                    trigger_single_step(dir);
+                if (space_pressed) {
+                    input_report_rel(trackball_dev_ref, INPUT_REL_HWHEEL, 1, false, K_FOREVER);
+                } else {
+                    trigger_key_press(DIR_RIGHT);
                 }
+                d_pos->pending_steps--;
             }
-
-            LOG_DBG("Axis %d: vel=%.2f, jump=%d, dir=%s",
-                    axis, net_velocity, jump, net_velocity > 0 ? "pos" : "neg");
+        } else if (d_neg->pending_steps > 0) {
+            if (space_pressed) {
+                input_report_rel(trackball_dev_ref, INPUT_REL_HWHEEL, -1, false, K_FOREVER);
+            } else {
+                trigger_key_press(DIR_LEFT);
+            }
+            d_neg->pending_steps--;
+        } else if (d_pos->pending_steps > 0) {
+            if (space_pressed) {
+                input_report_rel(trackball_dev_ref, INPUT_REL_HWHEEL, 1, false, K_FOREVER);
+            } else {
+                trigger_key_press(DIR_RIGHT);
+            }
+            d_pos->pending_steps--;
         }
+    }
 
-        /* 更新active状态 */
-        d_pos->active = (d_pos->velocity >= MIN_VELOCITY);
-        d_neg->active = (d_neg->velocity >= MIN_VELOCITY);
+    /* Y轴 (上下) - 同样逻辑 */
+    DirState *d_up = &dir_states[DIR_UP];
+    DirState *d_down = &dir_states[DIR_DOWN];
+
+    if (d_up->pending_steps > 0 && d_down->pending_steps > 0) {
+        if (d_up->pending_steps >= d_down->pending_steps) {
+            if (space_pressed) {
+                input_report_rel(trackball_dev_ref, INPUT_REL_WHEEL, 1, false, K_FOREVER);
+            } else {
+                trigger_key_press(DIR_UP);
+            }
+            d_up->pending_steps--;
+        } else {
+            if (space_pressed) {
+                input_report_rel(trackball_dev_ref, INPUT_REL_WHEEL, -1, false, K_FOREVER);
+            } else {
+                trigger_key_press(DIR_DOWN);
+            }
+            d_down->pending_steps--;
+        }
+    } else if (d_up->pending_steps > 0) {
+        if (space_pressed) {
+            input_report_rel(trackball_dev_ref, INPUT_REL_WHEEL, 1, false, K_FOREVER);
+        } else {
+            trigger_key_press(DIR_UP);
+        }
+        d_up->pending_steps--;
+    } else if (d_down->pending_steps > 0) {
+        if (space_pressed) {
+            input_report_rel(trackball_dev_ref, INPUT_REL_WHEEL, -1, false, K_FOREVER);
+        } else {
+            trigger_key_press(DIR_DOWN);
+        }
+        d_down->pending_steps--;
     }
 
     /* 继续调度 */
-    k_work_schedule(&physics_work, K_MSEC(TICK_INTERVAL_MS));
+    k_work_schedule(&step_work, K_MSEC(MIN_STEP_INTERVAL_MS));
 }
 
 /* ==== 初始化 ==== */
 static int bbtrackball_init(const struct device *dev) {
     struct bbtrackball_data *data = dev->data;
 
-    LOG_INF("Initializing BBtrackball (BlackBerry physics simulation)...");
-    LOG_INF("  Friction: %.2f, Accel: %.2f, Scale: %.2f",
-            FRICTION_COEFF, ACCEL_PER_PULSE, VELOCITY_SCALE);
+    LOG_INF("Initializing BBtrackball (step-limited mode)...");
+    LOG_INF("  Step interval: %dms, Key press: %dms",
+            MIN_STEP_INTERVAL_MS, KEY_PRESS_MS);
 
     /* 初始化GPIO */
     for (int i = 0; i < DIR_COUNT; i++) {
@@ -251,14 +259,17 @@ static int bbtrackball_init(const struct device *dev) {
         gpio_init_callback(&gpio_cbs[i], dir_edge_cb, BIT(d->pin));
         gpio_add_callback(d->gpio_dev, &gpio_cbs[i]);
         gpio_pin_interrupt_configure(d->gpio_dev, d->pin, GPIO_INT_EDGE_BOTH);
+
+        /* 初始化释放work */
+        k_work_init_delayable(&key_release_works[i], key_release_handler);
     }
 
     data->dev = dev;
     trackball_dev_ref = dev;
 
-    /* 启动物理引擎 */
-    k_work_init_delayable(&physics_work, physics_handler);
-    k_work_schedule(&physics_work, K_MSEC(TICK_INTERVAL_MS));
+    /* 启动步进定时器 */
+    k_work_init_delayable(&step_work, step_handler);
+    k_work_schedule(&step_work, K_MSEC(MIN_STEP_INTERVAL_MS));
 
     return 0;
 }
