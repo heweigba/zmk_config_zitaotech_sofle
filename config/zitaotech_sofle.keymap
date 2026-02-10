@@ -55,6 +55,15 @@
         };
     };
 
+    /* 鼠标滚轮编码器行为 */
+    behaviors {
+        msc_encoder: msc_encoder {
+            compatible = "zmk,behavior-sensor-rotate";
+            #sensor-binding-cells = <0>;
+            bindings = <&msc SCRL_UP>, <&msc SCRL_DOWN>;
+        };
+    };
+
     /* 长按切换到鼠标层，短按发送按键 */
 
     behaviors {
@@ -81,7 +90,7 @@
 &kp LCTRL  &kp LALT  &kp LGUI  &mo 1   &kp SPACE  &kp SPACE  &mo 1       &kp RGUI    &kp RALT     &kp RCTRL
             >;
 
-            sensor-bindings = <&inc_dec_kp C_VOL_UP C_VOL_DN &msc SCRL_UP SCRL_DOWN>;
+            sensor-bindings = <&inc_dec_kp C_VOL_UP C_VOL_DN &msc_encoder>;
         };
 
         func_layer {
@@ -107,7 +116,7 @@
 &trans  &trans  &trans  &trans  &trans  &mkp MB1  &mkp MB2   &trans     &trans  &trans
             >;
 
-            sensor-bindings = <&inc_dec_kp PG_UP PG_DN &msc SCRL_UP SCRL_DOWN>;
+            sensor-bindings = <&inc_dec_kp PG_UP PG_DN &msc_encoder>;
         };
 
         RES_layer {
