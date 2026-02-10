@@ -81,7 +81,7 @@
 &kp LCTRL  &kp LALT  &kp LGUI  &mo 1   &kp SPACE  &kp SPACE  &mo 1       &kp RGUI    &kp RALT     &kp RCTRL
             >;
 
-            sensor-bindings = <&inc_dec_kp C_VOL_UP C_VOL_DN &inc_dec_kp LEFT RIGHT>;
+            sensor-bindings = <&inc_dec_kp C_VOL_UP C_VOL_DN &msc SCRL_UP SCRL_DOWN>;
         };
 
         func_layer {
@@ -107,7 +107,7 @@
 &trans  &trans  &trans  &trans  &trans  &mkp MB1  &mkp MB2   &trans     &trans  &trans
             >;
 
-            sensor-bindings = <&inc_dec_kp PG_UP PG_DN &inc_dec_kp HOME END>;
+            sensor-bindings = <&inc_dec_kp PG_UP PG_DN &msc SCRL_UP SCRL_DOWN>;
         };
 
         RES_layer {
