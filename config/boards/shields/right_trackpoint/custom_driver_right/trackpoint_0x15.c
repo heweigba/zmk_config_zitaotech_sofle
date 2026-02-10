@@ -127,11 +127,10 @@ static void trackpoint_poll_work(struct k_work *work) {
             }
 
             /* 根据当前层选择模式 */
-            uint8_t highest_layer = zmk_keymap_highest_layer_active();
             uint8_t tp_led_brt = custom_led_get_last_valid_brightness();
             float tp_factor = 0.4f + 0.01f * tp_led_brt;
 
-            if (highest_layer == MOUSE_LAYER_ID) {
+            if (auto_mouse_active) {
                 /* 鼠标层：转换为滚轮事件 */
                 int16_t scaled_dx = -(int16_t)dx * 3 / 2 * tp_factor;
                 int16_t scaled_dy = -(int16_t)dy * 3 / 2 * tp_factor;
