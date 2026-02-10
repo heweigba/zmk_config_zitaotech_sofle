@@ -95,15 +95,13 @@ static int mouse_layer_ctrl_init(const struct device *dev) {
     return 0;
 }
 
-/* 定义 input-handler，绑定到 mouse_layer_listener 设备 */
-#define INPUT_HANDLER_NAME(node_id) _CONCAT(mouse_layer_handler_, node_id)
-
-static void INPUT_HANDLER_NAME(DT_NODELABEL(mouse_layer_listener))(struct input_event *evt) {
+/* 定义 input-handler，绑定到 trackpoint_listener 设备 */
+static void trackpoint_input_handler(struct input_event *evt, void *user_data) {
     mouse_layer_input_handler(evt);
 }
 
-INPUT_CALLBACK_DEFINE(DEVICE_DT_GET(DT_NODELABEL(mouse_layer_listener)),
-                      INPUT_HANDLER_NAME(DT_NODELABEL(mouse_layer_listener)),
+INPUT_CALLBACK_DEFINE(DEVICE_DT_GET(DT_NODELABEL(trackpoint_listener)),
+                      trackpoint_input_handler,
                       NULL);
 
 SYS_INIT(mouse_layer_ctrl_init, APPLICATION, CONFIG_APPLICATION_INIT_PRIORITY);

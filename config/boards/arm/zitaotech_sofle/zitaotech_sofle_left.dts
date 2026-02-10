@@ -125,15 +125,9 @@
 };*/
 
 
+/* 启用 trackpoint_listener 并绑定层切换处理器 */
 &trackpoint_listener {
-    status = "okay";
-};
-
-/* 鼠标层自动切换监听器 */
-mouse_layer_listener: mouse_layer_listener {
-    compatible = "zmk,input-listener";
-    status = "okay";
-    device = <&trackpoint_split>;
+    /* 添加 input-processor 来处理层切换 */
 };
 lpm_view_spi: &spi2 {
     compatible = "nordic,nrf-spim";
