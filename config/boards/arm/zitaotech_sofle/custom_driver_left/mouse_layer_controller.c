@@ -1,13 +1,17 @@
 /*
  * mouse_layer_controller.c - 左手层控制器
  *
- * 功能：通过 input-processor 监听小红点输入，检测到移动时自动进入鼠标层
+ * 功能：监听右手小红点输入，检测到移动时自动进入鼠标层
+ * 停止移动后自动退出鼠标层
+ *
+ * 注意：通过 INPUT_CALLBACK_DEFINE 注册到 trackpoint_listener 设备
  */
 
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/input/input.h>
+#include <zephyr/dt-bindings/input/input-event-codes.h>
 
 #include <zmk/keymap.h>
 #include <zmk/events/layer_state_changed.h>
@@ -32,7 +36,43 @@ static void timeout_handler(struct k_work *work) {
     }
 }
 
-/* 层切换监听 - 同步状态 */
+/* 输入事件处理函数 - 会被 trackpoint_listener 调用 */
+static void mouse_layer_input_handler(struct input_event *evt) {
+    LOG_DBG("Input: type=%d code=%d val=%d", evt->type, evt->code, evt->value);
+
+    if (evt->type != INPUT_EV_REL) {
+        return;
+    }
+
+    /* 检查是否是 X 或 Y 轴移动 */
+    if (evt->code == INPUT_REL_X || evt->code == INPUT_REL_Y) {
+        int16_t value = evt->value;
+
+        /* 过滤微小抖动 */
+        if (value >= 2 || value <= -2) {
+            uint32_t now = k_uptime_get_32();
+            last_movement_time = now;
+
+            LOG_DBG("Movement detected: %d", value);
+
+            /* 激活鼠标层 */
+            if (!mouse_layer_active) {
+                int ret = zmk_keymap_layer_activate(MOUSE_LAYER_ID);
+                if (ret == 0) {
+                    mouse_layer_active = true;
+                    LOG_INF("Mouse layer ON");
+                } else {
+                    LOG_WRN("Failed to activate layer: %d", ret);
+                }
+            }
+
+            /* 重新调度超时检查 */
+            k_work_reschedule(&timeout_work, K_MSEC(AUTO_MOUSE_TIMEOUT_MS));
+        }
+    }
+}
+
+/* 层变化监听 - 同步状态 */
 static int layer_listener_cb(const zmk_event_t *eh) {
     const struct zmk_layer_state_changed *ev = as_zmk_layer_state_changed(eh);
     if (!ev) return 0;
@@ -54,55 +94,19 @@ static int mouse_layer_ctrl_init(const struct device *dev) {
     return 0;
 }
 
-/* input-processor 处理函数
- * 这个函数会被 trackpoint_listener 的 input-processors 调用
- */
-static int mouse_layer_processor(const struct device *dev, struct input_event *event, void *user_data) {
-    /* 只处理 REL_X 和 REL_Y 事件 */
-    if (event->type == INPUT_EV_REL && (event->code == INPUT_REL_X || event->code == INPUT_REL_Y)) {
-        /* 过滤微小抖动 */
-        if (event->value >= 2 || event->value <= -2) {
-            uint32_t now = k_uptime_get_32();
-            last_movement_time = now;
-
-            LOG_DBG("Trackpoint movement: %d", event->value);
-
-            /* 激活鼠标层 */
-            if (!mouse_layer_active) {
-                int ret = zmk_keymap_layer_activate(MOUSE_LAYER_ID);
-                if (ret == 0) {
-                    mouse_layer_active = true;
-                    LOG_INF("Mouse layer ON");
-                }
-            }
-
-            /* 重新调度超时检查 */
-            k_work_reschedule(&timeout_work, K_MSEC(AUTO_MOUSE_TIMEOUT_MS));
-        }
-    }
-
-    /* 继续传递事件给下一个处理器 */
-    return 0;
-}
-
-/* 注册为 sys_init */
+/* 使用 SYS_INIT 初始化 */
 SYS_INIT(mouse_layer_ctrl_init, APPLICATION, CONFIG_APPLICATION_INIT_PRIORITY);
 
-/* 导出处理函数供 device tree 引用 */
-#define MOUSE_LAYER_PROCESSOR_INST(inst) \
-    static const struct device *mouse_layer_processor_##inst = DEVICE_DT_INST_GET(inst);
+/* 注册 input 回调到 trackpoint_listener 设备
+ * 注意：trackpoint_listener 是在 zitaotech_sofle.dtsi 中定义的节点
+ */
+#define TRACKPOINT_LISTENER_NODE DT_NODELABEL(trackpoint_listener)
 
-/* 定义 input-processor */
-#define ZMK_INPUT_PROCESSOR_DEFINE(name, handler) \
-    static int _CONCAT(z_mk_input_processor_, name)(const struct device *dev, \
-                                                    struct input_event *event, \
-                                                    void *user_data) { \
-        return handler(dev, event, user_data); \
-    }
-
-/* 实际的处理函数入口 */
-int zmk_input_processor_mouse_layer_handle(const struct device *dev,
-                                           struct input_event *event,
-                                           void *user_data) {
-    return mouse_layer_processor(dev, event, user_data);
+/* 这个回调会在每次 trackpoint_listener 接收到输入事件时被调用 */
+void trackpoint_listener_input_handler(struct input_event *evt, void *user_data) {
+    mouse_layer_input_handler(evt);
 }
+
+/* 注册回调 - 绑定到 trackpoint_listener 设备 */
+INPUT_CALLBACK_DEFINE(DEVICE_DT_GET(TRACKPOINT_LISTENER_NODE),
+                      trackpoint_listener_input_handler, NULL);

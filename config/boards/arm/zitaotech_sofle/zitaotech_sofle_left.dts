@@ -128,18 +128,7 @@
 /* 启用 trackpoint_listener */
 &trackpoint_listener {
     status = "okay";
-    input-processors = <&mouse_layer_proc>;
-};
-
-/* 鼠标层自动切换 input-processor */
-/ {
-    input_processors {
-        mouse_layer_proc: mouse_layer_proc {
-            compatible = "zmk,input-processor-fn";
-            #input-processor-cells = <0>;
-            handler = "zmk_input_processor_mouse_layer_handle";
-        };
-    };
+    /* 层切换处理器在 C 代码中通过 INPUT_CALLBACK_DEFINE 注册 */
 };
 lpm_view_spi: &spi2 {
     compatible = "nordic,nrf-spim";
